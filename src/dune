@@ -1,0 +1,4 @@
+(library
+ (name ipoptml)
+ (libraries ctypes ctypes.foreign)
+ (flags :standard -ccopt -I/usr/iclude/coin -cclib -lipopt))
