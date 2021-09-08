@@ -1,4 +1,4 @@
 (tests
  (names runtest)
  (libraries alcotest ipoptml)
- (flags :standard -ccopt -I/usr/iclude/coin -cclib -lipopt))
+ (flags :standard -cclib -lipopt))
