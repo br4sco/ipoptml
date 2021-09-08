@@ -1,9 +1,7 @@
 (* Test solving example NLP from IPOPT documentation
    https://coin-or.github.io/Ipopt/INTERFACES.html *)
 
-let eval_f x f =
-  f.{0} <- (x.{0} *. x.{3} *. (x.{0} +. x.{1} +. x.{2})) +. x.{2} ;
-  ()
+let eval_f x = (x.{0} *. x.{3} *. (x.{0} +. x.{1} +. x.{2})) +. x.{2}
 
 let eval_grad_f x grad_f =
   grad_f.{0} <- (x.{0} *. x.{3}) +. (x.{3} *. (x.{0} +. x.{1} +. x.{2})) ;
@@ -18,7 +16,7 @@ let eval_g x g =
     (x.{0} *. x.{0}) +. (x.{1} *. x.{1}) +. (x.{2} *. x.{2}) +. (x.{3} *. x.{3}) ;
   ()
 
-let eval_jac_g_structure =
+let jac_g_structure =
   [|(0, 0); (0, 1); (0, 2); (0, 3); (1, 0); (1, 1); (1, 2); (1, 3)|]
 
 let eval_jac_g x jac_g =
@@ -32,7 +30,7 @@ let eval_jac_g x jac_g =
   jac_g.{7} <- 2. *. x.{3} ;
   ()
 
-let eval_h_structure =
+let h_structure =
   [| (0, 0)
    ; (1, 0)
    ; (1, 1)

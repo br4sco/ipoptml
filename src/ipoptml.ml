@@ -9,11 +9,9 @@ let index_t = int
 
 let bool_t = int
 
-(* True *)
-let tt_c = 1
+let true_c = 1
 
-(* False *)
-let ff_c = 0
+let false_c = 0
 
 type ipopt_problem = unit ptr
 
@@ -183,17 +181,28 @@ let ipopt_solve_c =
 
 exception Callback_failure of string
 
-type problem = ipopt_problem
+type nlp = ipopt_problem
 
-type vector =
+type vec =
   ( float
   , Bigarray.float64_elt
   , Bigarray_compat.c_layout )
   Bigarray_compat.Array1.t
 
-let create_problem ~eval_f ~eval_grad_f ~eval_g ~eval_jac_g_structure
-    ~eval_jac_g ~eval_h_structure ~eval_h ~lb ~ub ~constraints_lb
-    ~constraints_ub =
+type eval_f_t = vec -> float
+
+type eval_grad_f_t = vec -> vec -> unit
+
+type eval_g_t = vec -> vec -> unit
+
+type structure_t = (int * int) array
+
+type eval_jac_g_t = vec -> vec -> unit
+
+type eval_h_t = sigma:float -> x:vec -> lambda:vec -> h:vec -> unit
+
+let create_nlp ~eval_f ~eval_grad_f ~eval_g ~jac_g_structure ~eval_jac_g
+    ~h_structure ~eval_h ~lb ~ub ~constraints_lb ~constraints_ub =
   let n = Bigarray.Array1.dim lb in
   if Bigarray.Array1.dim ub != n then
     raise
@@ -212,22 +221,22 @@ let create_problem ~eval_f ~eval_grad_f ~eval_g ~eval_jac_g_structure
       let g_U = bigarray_start array1 constraints_ub in
       (* 0 for C style, 1 for Fortran style *)
       let index_style = 0 in
-      let nele_jac = Array.length eval_jac_g_structure in
-      let nele_hess = Array.length eval_h_structure in
+      let nele_jac = Array.length jac_g_structure in
+      let nele_hess = Array.length h_structure in
       let try_eval name res =
-        try res ; tt_c
+        try res ; true_c
         with Callback_failure msg ->
           Printf.eprintf "there was an error in %s: %s\n" name msg ;
-          ff_c
+          false_c
       in
-      let eval_f_grad_f_c eval eval_name n x obj_value =
+      let eval_f_c n x _ f _ =
         let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
-        let f = bigarray_of_ptr array1 n Bigarray.Float64 obj_value in
-        try_eval eval_name (eval x' f)
+        try_eval "f" (f <-@ eval_f x')
       in
-      let eval_f_c n x _ f _ = eval_f_grad_f_c eval_f "eval_f" n x f in
       let eval_grad_f_c n x _ grad_f _ =
-        eval_f_grad_f_c eval_grad_f "eval_grad_f" n x grad_f
+        let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
+        let grad_f' = bigarray_of_ptr array1 n Bigarray.Float64 grad_f in
+        try_eval "eval_grad_f" (eval_grad_f x' grad_f')
       in
       let eval_g_c n x _ m g _ =
         let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
@@ -245,8 +254,8 @@ let create_problem ~eval_f ~eval_grad_f ~eval_g ~eval_jac_g_structure
       let eval_jac_g_c n x _ _ nele_jac irow jcol values _ =
         if is_null x then (
           (* compute the structure of the Jacobian *)
-          compute_structure eval_jac_g_structure irow jcol ;
-          tt_c )
+          compute_structure jac_g_structure irow jcol ;
+          true_c )
         else
           (* compute Jacobian *)
           let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
@@ -258,8 +267,8 @@ let create_problem ~eval_f ~eval_grad_f ~eval_g ~eval_jac_g_structure
       let eval_h_c n x _ obj_factor m lambda _ nele_hess irow jcol values _ =
         if is_null x then (
           (* compute the structure of the Hessian *)
-          compute_structure eval_h_structure irow jcol ;
-          tt_c )
+          compute_structure h_structure irow jcol ;
+          true_c )
         else
           (* compute Hessian *)
           let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
@@ -274,29 +283,30 @@ let create_problem ~eval_f ~eval_grad_f ~eval_g ~eval_jac_g_structure
       Gc.finalise (fun _ -> free_ipopt_problem_c p) p ;
       p
 
+let try_option r =
+  if r = true_c then () else raise (Invalid_argument "Invalid option")
+
 let add_str_option p key value =
-  if add_ipopt_str_option_c p key value = tt_c then ()
-  else raise (Invalid_argument "Invalid option")
+  try_option (add_ipopt_str_option_c p key value)
 
 let add_num_option p key value =
-  if add_ipopt_num_option_c p key value = tt_c then ()
-  else raise (Invalid_argument "Invalid option")
+  try_option (add_ipopt_num_option_c p key value)
 
 let add_int_option p key value =
-  if add_ipopt_int_option_c p key value = tt_c then ()
-  else raise (Invalid_argument "Invalid option")
+  try_option (add_ipopt_int_option_c p key value)
 
-let solve p ?(g = None) ?(f = None) ?(mult_g = None) ?(mult_lb = None)
-    ?(mult_ub = None) x =
+let solve p ?(g = None) ?(mult_g = None) ?(mult_lb = None) ?(mult_ub = None) x
+    =
   let x' = bigarray_start array1 x in
-  let value (ba : vector option) =
+  let value ba =
     ba
     |> Option.map (bigarray_start array1)
     |> Option.value ~default:(from_voidp number_t null)
   in
-  let obj_value = value f in
+  let obj_value = allocate number_t Float.infinity in
   let g' = value g in
   let mult_g' = value mult_g in
   let mult_x_L = value mult_lb in
   let mult_x_U = value mult_ub in
-  ipopt_solve_c p x' g' obj_value mult_g' mult_x_L mult_x_U null
+  let r = ipopt_solve_c p x' g' obj_value mult_g' mult_x_L mult_x_U null in
+  (r, !@obj_value)
