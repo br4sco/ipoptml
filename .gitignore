@@ -9,7 +9,12 @@
 *.cmxa
 
 # ocamlbuild working directory
-_build/
+_build/*
+!_build/default/
+_build/default/*
+!_build/default/_doc/
+_build/default/_doc/*
+!_build/default/_doc/_html/
 
 # ocamlbuild targets
 *.byte
