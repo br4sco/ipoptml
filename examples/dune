@@ -1,0 +1,4 @@
+(executable
+ (name runexamples)
+ (libraries ipoptml problems)
+ (flags :standard -cclib -lipopt))

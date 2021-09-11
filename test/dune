@@ -1,4 +1,4 @@
 (tests
  (names runtest)
- (libraries alcotest ipoptml)
+ (libraries alcotest ipoptml problems)
  (flags :standard -cclib -lipopt))
