@@ -21,33 +21,38 @@ type user_data = unit ptr
 
 let user_data_t : user_data typ = ptr void
 
-let eval_f_cb_t =
-  index_t @-> ptr number_t @-> bool_t @-> ptr number_t @-> user_data_t
-  @-> returning bool_t
+module Eval_f_cb =
+( val dynamic_funptr
+        ( index_t @-> ptr number_t @-> bool_t @-> ptr number_t @-> user_data_t
+        @-> returning bool_t ) )
 
-let eval_grad_f_cb_t =
-  index_t @-> ptr number_t @-> bool_t @-> ptr number_t @-> user_data_t
-  @-> returning bool_t
+module Eval_grad_f_cb =
+( val dynamic_funptr
+        ( index_t @-> ptr number_t @-> bool_t @-> ptr number_t @-> user_data_t
+        @-> returning bool_t ) )
 
-let eval_g_cb_t =
-  index_t @-> ptr number_t @-> bool_t @-> index_t @-> ptr number_t
-  @-> user_data_t @-> returning bool_t
+module Eval_g_cb =
+( val dynamic_funptr
+        ( index_t @-> ptr number_t @-> bool_t @-> index_t @-> ptr number_t
+        @-> user_data_t @-> returning bool_t ) )
 
-let eval_jac_g_cb_t =
-  index_t @-> ptr number_t @-> bool_t @-> index_t @-> index_t @-> ptr index_t
-  @-> ptr index_t @-> ptr number_t @-> user_data_t @-> returning bool_t
+module Eval_jac_g_cb =
+( val dynamic_funptr
+        ( index_t @-> ptr number_t @-> bool_t @-> index_t @-> index_t
+        @-> ptr index_t @-> ptr index_t @-> ptr number_t @-> user_data_t
+        @-> returning bool_t ) )
 
-let eval_h_cb_t =
-  index_t @-> ptr number_t @-> bool_t @-> number_t @-> index_t @-> ptr number_t
-  @-> bool_t @-> index_t @-> ptr index_t @-> ptr index_t @-> ptr number_t
-  @-> user_data_t @-> returning bool_t
+module Eval_h_cb =
+( val dynamic_funptr
+        ( index_t @-> ptr number_t @-> bool_t @-> number_t @-> index_t
+        @-> ptr number_t @-> bool_t @-> index_t @-> ptr index_t @-> ptr index_t
+        @-> ptr number_t @-> user_data_t @-> returning bool_t ) )
 
 let create_ipopt_problem_c =
   foreign "CreateIpoptProblem"
     ( index_t @-> ptr number_t @-> ptr number_t @-> index_t @-> ptr number_t
-    @-> ptr number_t @-> index_t @-> index_t @-> index_t @-> funptr eval_f_cb_t
-    @-> funptr eval_g_cb_t @-> funptr eval_grad_f_cb_t
-    @-> funptr eval_jac_g_cb_t @-> funptr eval_h_cb_t
+    @-> ptr number_t @-> index_t @-> index_t @-> index_t @-> Eval_f_cb.t
+    @-> Eval_g_cb.t @-> Eval_grad_f_cb.t @-> Eval_jac_g_cb.t @-> Eval_h_cb.t
     @-> returning ipopt_problem_t )
 
 let free_ipopt_problem_c =
@@ -181,8 +186,6 @@ let ipopt_solve_c =
 
 exception Callback_failure of string
 
-type nlp = ipopt_problem
-
 type vec =
   ( float
   , Bigarray.float64_elt
@@ -200,6 +203,8 @@ type structure_t = (int * int) array
 type eval_jac_g_t = vec -> vec -> unit
 
 type eval_h_t = sigma:float -> x:vec -> lambda:vec -> h:vec -> unit
+
+type nlp = ipopt_problem
 
 let create_nlp ~eval_f ~eval_grad_f ~eval_g ~jac_g_structure ~eval_jac_g
     ~h_structure ~eval_h ~lb ~ub ~constraints_lb ~constraints_ub =
@@ -264,6 +269,9 @@ let create_nlp ~eval_f ~eval_grad_f ~eval_g ~jac_g_structure ~eval_jac_g
           in
           try_eval "eval_jac_g" (eval_jac_g x' values')
       in
+      Gc.finalise
+        (fun _ -> print_endline "Garbage collected eval_jac_g_c")
+        eval_jac_g_c ;
       let eval_h_c n x _ obj_factor m lambda _ nele_hess irow jcol values _ =
         if is_null x then (
           (* compute the structure of the Hessian *)
@@ -276,11 +284,24 @@ let create_nlp ~eval_f ~eval_grad_f ~eval_g ~jac_g_structure ~eval_jac_g
           let h = bigarray_of_ptr array1 nele_hess Bigarray.Float64 values in
           try_eval "eval_h" (eval_h ~sigma:obj_factor ~x:x' ~lambda:lambda' ~h)
       in
+      let eval_f_c = Eval_f_cb.of_fun eval_f_c in
+      let eval_grad_f_c = Eval_grad_f_cb.of_fun eval_grad_f_c in
+      let eval_g_c = Eval_g_cb.of_fun eval_g_c in
+      let eval_jac_g_c = Eval_jac_g_cb.of_fun eval_jac_g_c in
+      let eval_h_c = Eval_h_cb.of_fun eval_h_c in
       let p =
         create_ipopt_problem_c n x_L x_U m g_L g_U nele_jac nele_hess
           index_style eval_f_c eval_g_c eval_grad_f_c eval_jac_g_c eval_h_c
       in
-      Gc.finalise (fun _ -> free_ipopt_problem_c p) p ;
+      Gc.finalise
+        (fun _ ->
+          free_ipopt_problem_c p ;
+          Eval_f_cb.free eval_f_c ;
+          Eval_grad_f_cb.free eval_grad_f_c ;
+          Eval_g_cb.free eval_g_c ;
+          Eval_jac_g_cb.free eval_jac_g_c ;
+          Eval_h_cb.free eval_h_c )
+        p ;
       p
 
 let try_option r =
