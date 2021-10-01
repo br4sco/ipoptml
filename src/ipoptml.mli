@@ -1,5 +1,5 @@
 (** OCaml interface to the IPOPT constrained Non-Linear Program (NLP) solver.
-  @see <https://coin-or.github.io/Ipopt/index.html> for the IPOPT documentation. *)
+  @see <https://coin-or.github.io/Ipopt/> for the IPOPT documentation. *)
 
 (** Return status for the Optimize call for an application. *)
 type application_return_status =
