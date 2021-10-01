@@ -234,19 +234,22 @@ let create_nlp ~eval_f ~eval_grad_f ~eval_g ~jac_g_structure ~eval_jac_g
           Printf.eprintf "there was an error in %s: %s\n" name msg ;
           false_c
       in
-      let eval_f_c n x _ f _ =
-        let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
-        try_eval "f" (f <-@ eval_f x')
+      let eval_f_c =
+        Eval_f_cb.of_fun (fun n x _ f _ ->
+            let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
+            try_eval "f" (f <-@ eval_f x') )
       in
-      let eval_grad_f_c n x _ grad_f _ =
-        let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
-        let grad_f' = bigarray_of_ptr array1 n Bigarray.Float64 grad_f in
-        try_eval "eval_grad_f" (eval_grad_f x' grad_f')
+      let eval_grad_f_c =
+        Eval_grad_f_cb.of_fun (fun n x _ grad_f _ ->
+            let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
+            let grad_f' = bigarray_of_ptr array1 n Bigarray.Float64 grad_f in
+            try_eval "eval_grad_f" (eval_grad_f x' grad_f') )
       in
-      let eval_g_c n x _ m g _ =
-        let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
-        let g' = bigarray_of_ptr array1 m Bigarray.Float64 g in
-        try_eval "eval_g" (eval_g x' g')
+      let eval_g_c =
+        Eval_g_cb.of_fun (fun n x _ m g _ ->
+            let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
+            let g' = bigarray_of_ptr array1 m Bigarray.Float64 g in
+            try_eval "eval_g" (eval_g x' g') )
       in
       let compute_structure structure irow jcol =
         Array.iteri
@@ -256,39 +259,37 @@ let create_nlp ~eval_f ~eval_grad_f ~eval_g ~jac_g_structure ~eval_jac_g
           structure ;
         ()
       in
-      let eval_jac_g_c n x _ _ nele_jac irow jcol values _ =
-        if is_null x then (
-          (* compute the structure of the Jacobian *)
-          compute_structure jac_g_structure irow jcol ;
-          true_c )
-        else
-          (* compute Jacobian *)
-          let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
-          let values' =
-            bigarray_of_ptr array1 nele_jac Bigarray.Float64 values
-          in
-          try_eval "eval_jac_g" (eval_jac_g x' values')
+      let eval_jac_g_c =
+        Eval_jac_g_cb.of_fun (fun n x _ _ nele_jac irow jcol values _ ->
+            if is_null x then (
+              (* compute the structure of the Jacobian *)
+              compute_structure jac_g_structure irow jcol ;
+              true_c )
+            else
+              (* compute Jacobian *)
+              let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
+              let values' =
+                bigarray_of_ptr array1 nele_jac Bigarray.Float64 values
+              in
+              try_eval "eval_jac_g" (eval_jac_g x' values') )
       in
-      Gc.finalise
-        (fun _ -> print_endline "Garbage collected eval_jac_g_c")
-        eval_jac_g_c ;
-      let eval_h_c n x _ obj_factor m lambda _ nele_hess irow jcol values _ =
-        if is_null x then (
-          (* compute the structure of the Hessian *)
-          compute_structure h_structure irow jcol ;
-          true_c )
-        else
-          (* compute Hessian *)
-          let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
-          let lambda' = bigarray_of_ptr array1 m Bigarray.Float64 lambda in
-          let h = bigarray_of_ptr array1 nele_hess Bigarray.Float64 values in
-          try_eval "eval_h" (eval_h ~sigma:obj_factor ~x:x' ~lambda:lambda' ~h)
+      let eval_h_c =
+        Eval_h_cb.of_fun
+          (fun n x _ obj_factor m lambda _ nele_hess irow jcol values _ ->
+            if is_null x then (
+              (* compute the structure of the Hessian *)
+              compute_structure h_structure irow jcol ;
+              true_c )
+            else
+              (* compute Hessian *)
+              let x' = bigarray_of_ptr array1 n Bigarray.Float64 x in
+              let lambda' = bigarray_of_ptr array1 m Bigarray.Float64 lambda in
+              let h =
+                bigarray_of_ptr array1 nele_hess Bigarray.Float64 values
+              in
+              try_eval "eval_h"
+                (eval_h ~sigma:obj_factor ~x:x' ~lambda:lambda' ~h) )
       in
-      let eval_f_c = Eval_f_cb.of_fun eval_f_c in
-      let eval_grad_f_c = Eval_grad_f_cb.of_fun eval_grad_f_c in
-      let eval_g_c = Eval_g_cb.of_fun eval_g_c in
-      let eval_jac_g_c = Eval_jac_g_cb.of_fun eval_jac_g_c in
-      let eval_h_c = Eval_h_cb.of_fun eval_h_c in
       let p =
         create_ipopt_problem_c n x_L x_U m g_L g_U nele_jac nele_hess
           index_style eval_f_c eval_g_c eval_grad_f_c eval_jac_g_c eval_h_c
