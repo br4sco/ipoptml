@@ -22,7 +22,7 @@ For details on other ways of installing IPOPT, see
 ### Install this package
 Install `opam` libraries: 
 ```
-opam install dune ctypes ctypes-foreign
+opam install dune alcotest ctypes ctypes-foreign
 ```
 
 Build the package:
